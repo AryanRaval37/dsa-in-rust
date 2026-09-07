@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "binary-search-trees",
+    "lists",
+]
+resolver = "2"
