@@ -1,4 +1,11 @@
-# Learning Rust With Entirely Too Many Linked Lists
-Found this amazing resource for learning real memory safety side of rust:
-https://rust-unofficial.github.io/too-many-lists/
-The code is just me following along the guide adding my comments to help me understand whats going on when i look at it again later.
+# DSA in Rust
+
+Found this amazing resource for learning rust: https://rust-unofficial.github.io/too-many-lists/ 
+
+I started out with the above guide (still yet to complete it), plan now is to use the same ideas to implement BSTs, AVL Trees, Hashmaps etc.
+
+- [X] Singly Linked lists
+- [X] BST
+- [ ] AVL Trees
+
+Add more things to the todo list... Its quite useless if it only has completed things...
