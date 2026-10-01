@@ -1,6 +1,6 @@
-[workspace]
-members = [
-    "binary-search-trees",
-    "lists",
-]
-resolver = "2"
+[package]
+name = "dsa"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]

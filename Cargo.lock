@@ -3,9 +3,5 @@
 version = 4
 
 [[package]]
-name = "binary-search-trees"
-version = "0.1.0"
-
-[[package]]
-name = "lists"
+name = "dsa"
 version = "0.1.0"

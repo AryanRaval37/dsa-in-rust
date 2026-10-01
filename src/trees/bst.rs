@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
-use std::collections::HashMap;
 use std::fmt;
+use std::collections::HashMap;
 
 pub struct Bst<T> {
     head: Link<T>
@@ -40,16 +40,72 @@ impl<T: Ord> Bst<T> {
         }));
     }
 
-    pub fn search(&self, elem: T) -> bool {
+    // returns the value elem if it is found else returns None
+    pub fn search(&self, elem: T) -> Option<T> {
         let mut link = &self.head;
         while let Some(node) = link {
             match elem.cmp(&node.elem) {
                 Ordering::Less => link = &node.left,
                 Ordering::Greater => link = &node.right,
-                Ordering::Equal => return true,
+                Ordering::Equal => return Some(elem),
             }
         }
-        return false;
+        return None;
+    }
+
+    // returns the deleted value (same as elem) if it exists in the tree else returns None
+    pub fn delete(&mut self, elem: T) -> Option<T> {
+        let mut link = &mut self.head;
+        loop {
+            /* Observe 
+            * match link {
+            *   None => return None, // not found
+            *   Some(node) => {
+            *       match elem.cmp(&node.elem) {
+            *           Ordering::Less => link = &mut node.left,
+            *           Ordering::Greater => link = &mut node.right,
+            *           Ordering::Equal => break,
+            *       }
+            *   }
+            * }
+            * The problem here is that when link is matched against Some(Node),
+            * node now mutably borrows the link so link cannot be mutated anymore 
+            * thats fine for less and greater because you put another mutable borrow right back in the link 
+            * however for the Equal case, link doesn't get anything back (link is currently immutable) 
+            */
+            match link.as_ref().map(|node| elem.cmp(&node.elem)) {
+                None => return None, // reached end of list, element not found
+                Some(Ordering::Equal) => break,
+                Some(Ordering::Less) => link = &mut link.as_mut().unwrap().left, // we know unwrap is safe here because we already checked if the node is None
+                Some(Ordering::Greater) => link = &mut link.as_mut().unwrap().right
+            }
+        }
+        // node is found the element is at the node owned by current link
+        // taking ownership of the boxed node by link.take(), making link = None
+        let boxed = link.take().unwrap(); // this will definitely be Some because we know that the node here is the elem itself to be deleted.
+        let deleted = boxed.elem;
+        match(boxed.left, boxed.right) {
+            (None, None) => { // case 1: leaf node, just delete it
+                // nothing needs to be done here link is already None
+            },
+            (Some(child), None) | (None, Some(child)) => { // case 2: one child only
+                // just delete the node at link and reconnect child to node above to the node above. 
+                 *link = Some(child); // making the link which was None to the child of the deleted node, giving back ownership here.
+            },
+            (Some(left), Some(right)) => { // case 3: both children present, replace the current position with successor
+                let mut right_link = Some(right);
+                let mut cur = &mut right_link;
+                while cur.as_ref().unwrap().left.is_some() {
+                    cur = &mut cur.as_mut().unwrap().left;
+                } // cur will now point to to leftmost node of right subtree
+                let mut succ = cur.take().unwrap(); // take the successor node out of the tree
+                *cur = succ.right.take(); // replace the successor node with its right child (if any)
+                succ.left = Some(left); // connect the left child of the deleted node to the successor
+                succ.right = right_link; // connect the right child of the deleted node to the successor
+                *link = Some(succ); // replace the deleted node with the successor
+            }
+        };
+        return Some(deleted);
     }
 }
 
@@ -295,4 +351,20 @@ impl<T: fmt::Display> fmt::Display for Bst<T> {
 mod test {
     use super::Bst;
 
+    #[test]
+    // poor test, i know but whatever, im lazy, move on to next thing
+    fn basics() {
+        let mut bst: Bst<i32> = Bst::new();
+        assert_eq!(bst.search(37), None);
+        bst.insert(1); bst.insert(2); bst.insert(3);
+        assert_eq!(bst.search(3), Some(3));
+    }
+
+    #[test]
+    fn delete() {
+        let mut bst: Bst<i32> = Bst::new();
+        assert_eq!(bst.delete(37), None);
+        bst.insert(1); bst.insert(2); bst.insert(3);
+        assert_eq!(bst.delete(2), Some(2));
+    }
 }
