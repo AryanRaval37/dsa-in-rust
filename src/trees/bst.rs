@@ -1,22 +1,59 @@
 use std::cmp::Ordering;
-use std::fmt;
 use std::collections::HashMap;
+use std::fmt;
 
 pub struct Bst<T> {
-    head: Link<T>
+    head: Link<T>,
 }
 
 type Link<T> = Option<Box<Node<T>>>;
 
-struct Node<T> {  
+struct Node<T> {
     elem: T,
     left: Link<T>,
     right: Link<T>,
 }
 
+pub struct Iter<'a, T> {
+    stack: Vec<&'a Node<T>>,
+}
+
+impl<'a, T> Iter<'a, T> {
+    // storing the whole left subtree references to nodes
+    pub fn new(bst: &'a Bst<T>) -> Self {
+        let mut iter = Iter { stack: Vec::new() };
+        iter.push_left_path(bst.head.as_deref());
+        iter
+    }
+
+    // function that pushes the whole left path from the current node into the stack of the iter
+    fn push_left_path(&mut self, mut node: Option<&'a Node<T>>) {
+        while let Some(current) = node {
+            self.stack.push(current);
+            node = current.left.as_deref();
+        }
+    }
+}
+
+impl<'a, T> Iterator for Iter<'a, T> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let node = self.stack.pop()?;
+        self.push_left_path(node.right.as_deref());
+        Some(&node.elem)
+    }
+}
+
+impl<T> Bst<T> {
+    pub fn iter(&self) -> Iter<'_, T> {
+        Iter::new(self)
+    }
+}
+
 impl<T: Ord> Bst<T> {
     pub fn new() -> Self {
-        Self {head: None}
+        Self { head: None }
     }
 
     pub fn insert(&mut self, elem: T) {
@@ -57,42 +94,44 @@ impl<T: Ord> Bst<T> {
     pub fn delete(&mut self, elem: T) -> Option<T> {
         let mut link = &mut self.head;
         loop {
-            /* Observe 
-            * match link {
-            *   None => return None, // not found
-            *   Some(node) => {
-            *       match elem.cmp(&node.elem) {
-            *           Ordering::Less => link = &mut node.left,
-            *           Ordering::Greater => link = &mut node.right,
-            *           Ordering::Equal => break,
-            *       }
-            *   }
-            * }
-            * The problem here is that when link is matched against Some(Node),
-            * node now mutably borrows the link so link cannot be mutated anymore 
-            * thats fine for less and greater because you put another mutable borrow right back in the link 
-            * however for the Equal case, link doesn't get anything back (link is currently immutable) 
-            */
+            /* Observe
+             * match link {
+             *   None => return None, // not found
+             *   Some(node) => {
+             *       match elem.cmp(&node.elem) {
+             *           Ordering::Less => link = &mut node.left,
+             *           Ordering::Greater => link = &mut node.right,
+             *           Ordering::Equal => break,
+             *       }
+             *   }
+             * }
+             * The problem here is that when link is matched against Some(Node),
+             * node now mutably borrows the link so link cannot be mutated anymore
+             * thats fine for less and greater because you put another mutable borrow right back in the link
+             * however for the Equal case, link doesn't get anything back (link is currently immutable)
+             */
             match link.as_ref().map(|node| elem.cmp(&node.elem)) {
                 None => return None, // reached end of list, element not found
                 Some(Ordering::Equal) => break,
                 Some(Ordering::Less) => link = &mut link.as_mut().unwrap().left, // we know unwrap is safe here because we already checked if the node is None
-                Some(Ordering::Greater) => link = &mut link.as_mut().unwrap().right
+                Some(Ordering::Greater) => link = &mut link.as_mut().unwrap().right,
             }
         }
         // node is found the element is at the node owned by current link
         // taking ownership of the boxed node by link.take(), making link = None
         let boxed = link.take().unwrap(); // this will definitely be Some because we know that the node here is the elem itself to be deleted.
         let deleted = boxed.elem;
-        match(boxed.left, boxed.right) {
+        match (boxed.left, boxed.right) {
             (None, None) => { // case 1: leaf node, just delete it
                 // nothing needs to be done here link is already None
-            },
-            (Some(child), None) | (None, Some(child)) => { // case 2: one child only
-                // just delete the node at link and reconnect child to node above to the node above. 
-                 *link = Some(child); // making the link which was None to the child of the deleted node, giving back ownership here.
-            },
-            (Some(left), Some(right)) => { // case 3: both children present, replace the current position with successor
+            }
+            (Some(child), None) | (None, Some(child)) => {
+                // case 2: one child only
+                // just delete the node at link and reconnect child to node above to the node above.
+                *link = Some(child); // making the link which was None to the child of the deleted node, giving back ownership here.
+            }
+            (Some(left), Some(right)) => {
+                // case 3: both children present, replace the current position with successor
                 let mut right_link = Some(right);
                 let mut cur = &mut right_link;
                 while cur.as_ref().unwrap().left.is_some() {
@@ -265,22 +304,20 @@ impl<T: fmt::Display> fmt::Display for Bst<T> {
 
                 for node in level {
                     let parent_position =
-                        positions[&(*node as *const Node<T>)] * half_cell_width
-                            + half_cell_width;
+                        positions[&(*node as *const Node<T>)] * half_cell_width + half_cell_width;
 
                     if let Some(left) = node.left.as_deref() {
-                        let child_position =
-                            positions[&(left as *const Node<T>)] * half_cell_width
-                                + half_cell_width;
+                        let child_position = positions[&(left as *const Node<T>)] * half_cell_width
+                            + half_cell_width;
 
                         largest_distance =
                             largest_distance.max(parent_position.abs_diff(child_position));
                     }
 
                     if let Some(right) = node.right.as_deref() {
-                        let child_position =
-                            positions[&(right as *const Node<T>)] * half_cell_width
-                                + half_cell_width;
+                        let child_position = positions[&(right as *const Node<T>)]
+                            * half_cell_width
+                            + half_cell_width;
 
                         largest_distance =
                             largest_distance.max(parent_position.abs_diff(child_position));
@@ -289,7 +326,7 @@ impl<T: fmt::Display> fmt::Display for Bst<T> {
 
                 // One slash row is normally enough.
                 // Add another row only when the gap is unusually wide.
-                let max_distance_per_branch_row = cell_width ;
+                let max_distance_per_branch_row = cell_width;
 
                 let branch_rows = if largest_distance <= max_distance_per_branch_row {
                     1
@@ -302,14 +339,14 @@ impl<T: fmt::Display> fmt::Display for Bst<T> {
                     let mut branch_line = vec![' '; line_width];
 
                     for node in level {
-                        let parent_position =
-                            positions[&(*node as *const Node<T>)] * half_cell_width
-                                + half_cell_width;
+                        let parent_position = positions[&(*node as *const Node<T>)]
+                            * half_cell_width
+                            + half_cell_width;
 
                         if let Some(left) = node.left.as_deref() {
-                            let child_position =
-                                positions[&(left as *const Node<T>)] * half_cell_width
-                                    + half_cell_width;
+                            let child_position = positions[&(left as *const Node<T>)]
+                                * half_cell_width
+                                + half_cell_width;
 
                             let position = parent_position as isize
                                 + (child_position as isize - parent_position as isize)
@@ -320,9 +357,9 @@ impl<T: fmt::Display> fmt::Display for Bst<T> {
                         }
 
                         if let Some(right) = node.right.as_deref() {
-                            let child_position =
-                                positions[&(right as *const Node<T>)] * half_cell_width
-                                    + half_cell_width;
+                            let child_position = positions[&(right as *const Node<T>)]
+                                * half_cell_width
+                                + half_cell_width;
 
                             let position = parent_position as isize
                                 + (child_position as isize - parent_position as isize)
@@ -356,7 +393,9 @@ mod test {
     fn basics() {
         let mut bst: Bst<i32> = Bst::new();
         assert_eq!(bst.search(37), None);
-        bst.insert(1); bst.insert(2); bst.insert(3);
+        bst.insert(1);
+        bst.insert(2);
+        bst.insert(3);
         assert_eq!(bst.search(3), Some(3));
     }
 
@@ -364,7 +403,22 @@ mod test {
     fn delete() {
         let mut bst: Bst<i32> = Bst::new();
         assert_eq!(bst.delete(37), None);
-        bst.insert(1); bst.insert(2); bst.insert(3);
+        bst.insert(1);
+        bst.insert(2);
+        bst.insert(3);
         assert_eq!(bst.delete(2), Some(2));
+    }
+
+    #[test]
+    fn iter() {
+        let mut bst = Bst::new();
+        bst.insert(2);
+        bst.insert(3);
+        bst.insert(1);
+
+        let mut iter = bst.iter();
+        assert_eq!(iter.next(), Some(&1));
+        assert_eq!(iter.next(), Some(&2));
+        assert_eq!(iter.next(), Some(&3));
     }
 }
