@@ -16,6 +16,8 @@ struct Node<T> {
 }
 
 impl<T> Node<T> {
+    // added functions to calculate the balance of the node
+    // right heavy means positive
     fn balance(&self) -> i32 {
         match (&self.left, &self.right) {
             (Some(x), Some(y)) => return y.height as i32 - x.height as i32,
@@ -132,7 +134,54 @@ impl<T: Ord> Avl<T> {
         *link = Some(y);
     }
 
-    pub fn insert(&mut self, elem: T) {}
+    fn rebalance(link: &mut Link<T>) {
+        let Some(node) = link.as_mut() else {
+            return;
+        };
+        node.update_height();
+
+        // Balance is right height minus left height.
+        if node.balance() < -1 {
+            let left = node.left.as_ref().unwrap();
+            if left.balance() > 0 {
+                // Left-right case: straighten the left child first.
+                Self::rotate_left(&mut node.left);
+            }
+            Self::rotate_right(link);
+        } else if node.balance() > 1 {
+            let right = node.right.as_ref().unwrap();
+            if right.balance() < 0 {
+                // Right-left case: straighten the right child first.
+                Self::rotate_right(&mut node.right);
+            }
+            Self::rotate_left(link);
+        }
+    }
+
+    pub fn insert(&mut self, elem: T) {
+        Self::insert_at(&mut self.head, elem);
+    }
+
+    fn insert_at(link: &mut Link<T>, elem: T) {
+        let Some(node) = link.as_mut() else {
+            *link = Some(Box::new(Node {
+                elem,
+                left: None,
+                right: None,
+                height: 1,
+            }));
+            return;
+        };
+
+        match elem.cmp(&node.elem) {
+            Ordering::Less => Self::insert_at(&mut node.left, elem),
+            Ordering::Greater => Self::insert_at(&mut node.right, elem),
+            Ordering::Equal => return, // Keep just one copy of each value.
+        }
+
+        // Recursion repairs the children before we repair their parent.
+        Self::rebalance(link);
+    }
 
     // returns the value elem if it is found else returns None
     pub fn search(&self, elem: T) -> Option<T> {
@@ -147,61 +196,57 @@ impl<T: Ord> Avl<T> {
         return None;
     }
 
-    // returns the deleted value (same as elem) if it exists in the tree else returns None
+    // Returns the stored value if it exists in the tree.
     pub fn delete(&mut self, elem: T) -> Option<T> {
-        let mut link = &mut self.head;
-        loop {
-            /* Observe
-             * match link {
-             *   None => return None, // not found
-             *   Some(node) => {
-             *       match elem.cmp(&node.elem) {
-             *           Ordering::Less => link = &mut node.left,
-             *           Ordering::Greater => link = &mut node.right,
-             *           Ordering::Equal => break,
-             *       }
-             *   }
-             * }
-             * The problem here is that when link is matched against Some(Node),
-             * node now mutably borrows the link so link cannot be mutated anymore
-             * thats fine for less and greater because you put another mutable borrow right back in the link
-             * however for the Equal case, link doesn't get anything back (link is currently immutable)
-             */
-            match link.as_ref().map(|node| elem.cmp(&node.elem)) {
-                None => return None, // reached end of list, element not found
-                Some(Ordering::Equal) => break,
-                Some(Ordering::Less) => link = &mut link.as_mut().unwrap().left, // we know unwrap is safe here because we already checked if the node is None
-                Some(Ordering::Greater) => link = &mut link.as_mut().unwrap().right,
-            }
-        }
-        // node is found the element is at the node owned by current link
-        // taking ownership of the boxed node by link.take(), making link = None
-        let boxed = link.take().unwrap(); // this will definitely be Some because we know that the node here is the elem itself to be deleted.
-        let deleted = boxed.elem;
-        match (boxed.left, boxed.right) {
-            (None, None) => { // case 1: leaf node, just delete it
-                // nothing needs to be done here link is already None
-            }
-            (Some(child), None) | (None, Some(child)) => {
-                // case 2: one child only
-                // just delete the node at link and reconnect child to node above to the node above.
-                *link = Some(child); // making the link which was None to the child of the deleted node, giving back ownership here.
-            }
-            (Some(left), Some(right)) => {
-                // case 3: both children present, replace the current position with successor
-                let mut right_link = Some(right);
-                let mut cur = &mut right_link;
-                while cur.as_ref().unwrap().left.is_some() {
-                    cur = &mut cur.as_mut().unwrap().left;
-                } // cur will now point to to leftmost node of right subtree
-                let mut succ = cur.take().unwrap(); // take the successor node out of the tree
-                *cur = succ.right.take(); // replace the successor node with its right child (if any)
-                succ.left = Some(left); // connect the left child of the deleted node to the successor
-                succ.right = right_link; // connect the right child of the deleted node to the successor
-                *link = Some(succ); // replace the deleted node with the successor
+        Self::delete_at(&mut self.head, &elem)
+    }
+
+    // vide coded delete_at
+    // whatever. it was painful to implement avl trees
+    fn delete_at(link: &mut Link<T>, elem: &T) -> Option<T> {
+        let node = link.as_mut()?;
+
+        let deleted = match elem.cmp(&node.elem) {
+            Ordering::Less => Self::delete_at(&mut node.left, elem),
+            Ordering::Greater => Self::delete_at(&mut node.right, elem),
+            Ordering::Equal => {
+                let mut removed = link.take().unwrap();
+
+                if removed.left.is_none() {
+                    *link = removed.right.take();
+                } else if removed.right.is_none() {
+                    *link = removed.left.take();
+                } else {
+                    // Move the smallest node in the right subtree into this spot.
+                    let mut successor = Self::remove_min(&mut removed.right);
+                    successor.left = removed.left.take();
+                    successor.right = removed.right.take();
+                    *link = Some(successor);
+                }
+
+                Some(removed.elem)
             }
         };
-        return Some(deleted);
+
+        Self::rebalance(link);
+        deleted
+    }
+
+    // The caller must provide a nonempty subtree.
+    fn remove_min(link: &mut Link<T>) -> Box<Node<T>> {
+        let node = link
+            .as_mut()
+            .expect("remove_min requires a nonempty subtree");
+
+        if node.left.is_some() {
+            let smallest = Self::remove_min(&mut node.left);
+            Self::rebalance(link);
+            smallest
+        } else {
+            let mut smallest = link.take().unwrap();
+            *link = smallest.right.take();
+            smallest
+        }
     }
 }
 
@@ -443,7 +488,139 @@ impl<T: fmt::Display> fmt::Display for Avl<T> {
 
 #[cfg(test)]
 mod test {
-    use super::Avl;
+    use super::{Avl, Node};
+
+    // vide coded insert, delete, rotate tests
+    fn assert_avl(tree: &Avl<i32>) {
+        fn check(node: Option<&Node<i32>>, lower: Option<i32>, upper: Option<i32>) -> u32 {
+            let Some(node) = node else {
+                return 0;
+            };
+
+            if let Some(lower) = lower {
+                assert!(node.elem > lower);
+            }
+            if let Some(upper) = upper {
+                assert!(node.elem < upper);
+            }
+
+            let left_height = check(node.left.as_deref(), lower, Some(node.elem));
+            let right_height = check(node.right.as_deref(), Some(node.elem), upper);
+            let height = 1 + left_height.max(right_height);
+
+            assert_eq!(node.height, height, "wrong height at {}", node.elem);
+            assert!(
+                left_height.abs_diff(right_height) <= 1,
+                "unbalanced node: {}",
+                node.elem
+            );
+            height
+        }
+
+        check(tree.head.as_deref(), None, None);
+    }
+
+    #[test]
+    fn insertion_rotations() {
+        for values in [[3, 2, 1], [1, 2, 3], [3, 1, 2], [1, 3, 2]] {
+            let mut tree = Avl::new();
+            for value in values {
+                tree.insert(value);
+                assert_avl(&tree);
+            }
+
+            assert_eq!(tree.head.as_ref().unwrap().elem, 2);
+            assert_eq!(tree.iter().copied().collect::<Vec<_>>(), vec![1, 2, 3]);
+        }
+    }
+
+    #[test]
+    fn duplicate_insertion() {
+        let mut tree = Avl::new();
+        for value in [2, 1, 3, 2, 1, 3] {
+            tree.insert(value);
+            assert_avl(&tree);
+        }
+        assert_eq!(tree.iter().copied().collect::<Vec<_>>(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn deletion_rotations() {
+        // Single rotations, double rotations, and a heavy child with balance zero.
+        let cases: &[(&[i32], i32, i32)] = &[
+            (&[3, 2, 4, 1], 4, 2),
+            (&[2, 1, 3, 4], 1, 3),
+            (&[5, 2, 6, 3], 6, 3),
+            (&[2, 1, 5, 4], 1, 4),
+            (&[4, 2, 5, 1, 3], 5, 2),
+            (&[2, 1, 4, 3, 5], 1, 4),
+        ];
+        for &(values, deleted, root) in cases {
+            let mut tree = Avl::new();
+            for &value in values {
+                tree.insert(value);
+            }
+
+            assert_eq!(tree.delete(deleted), Some(deleted));
+            assert_avl(&tree);
+            assert_eq!(tree.search(deleted), None);
+            assert_eq!(tree.head.as_ref().unwrap().elem, root);
+        }
+    }
+
+    #[test]
+    fn sorted_insertions_and_deletions() {
+        let mut tree = Avl::new();
+        for value in 0..256 {
+            tree.insert(value);
+            assert_avl(&tree);
+        }
+        assert_eq!(tree.delete(-1), None);
+        assert_avl(&tree);
+
+        for value in 0..256 {
+            assert_eq!(tree.delete(value), Some(value));
+            assert_avl(&tree);
+            assert_eq!(
+                tree.iter().copied().collect::<Vec<_>>(),
+                ((value + 1)..256).collect::<Vec<_>>()
+            );
+        }
+        assert!(tree.head.is_none());
+    }
+
+    #[test]
+    fn all_small_insertion_and_deletion_orders() {
+        fn check_orders(values: &mut [i32], start: usize) {
+            if start == values.len() {
+                let mut tree = Avl::new();
+                for &value in values.iter() {
+                    tree.insert(value);
+                    assert_avl(&tree);
+                }
+                assert_eq!(
+                    tree.iter().copied().collect::<Vec<_>>(),
+                    vec![0, 1, 2, 3, 4, 5]
+                );
+
+                for &value in values.iter() {
+                    assert_eq!(tree.delete(value), Some(value));
+                    assert_avl(&tree);
+                    assert_eq!(tree.search(value), None);
+                }
+                assert!(tree.head.is_none());
+                return;
+            }
+
+            for index in start..values.len() {
+                values.swap(start, index);
+                check_orders(values, start + 1);
+                values.swap(start, index);
+            }
+        }
+
+        check_orders(&mut [0, 1, 2, 3, 4, 5], 0);
+    }
 
     #[test]
     // poor test, i know but whatever, im lazy, move on to next thing
